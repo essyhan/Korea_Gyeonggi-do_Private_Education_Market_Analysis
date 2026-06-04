@@ -1,0 +1,692 @@
+---
+title: "DS & R Final Project "
+output:
+  html_document: default
+date: "2023-06-03"
+---
+#### Group6: YJS, PGE, HSY
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(readxl)
+library(readr)
+library(dplyr)
+library(stringr)
+library(tidyverse)
+library(ggcorrplot)
+library(colorspace)
+library(extrafont)
+library(showtext) 
+library(gridExtra)
+library(factoextra)
+font_add_google("Noto Sans KR", "NSK") # Codestates 컨텐츠 폰트
+showtext_auto()
+```
+
+```{r}
+edu <- read_csv('/Users/goeunpark/Downloads/edu5.csv')
+```
+\newpage
+
+### Translating column names
+```{r}
+colnames(edu) <- c("Region", "Academy_name", "Academy_type", "Field", "Founder", "Education_branch", "Course", "Subject", "Capacity", "Education_period", "Total_education_time_in_minutes", "Tuition", "Number_of_instructors")
+write.csv(edu, "eng_edu.csv", row.names = FALSE)
+eng_edu <- read.csv("eng_edu.csv") 
+```
+
+### Add 1 if the number of instructors is 0
+```{r}
+eng_edu $Number_of_instructors[eng_edu$Number_of_instructors == 0] <- 1
+#double checking + subseting
+subset_eng_edu <- eng_edu[eng_edu$Number_of_instructors == 0, ]
+```
+
+### Remove meaningless words (ex: (대), (중), (소))
+```{r}
+#Remove meaningless words (ex: (대), (중), (소))
+remove_parentheses <- function(text) {
+  result <- ""
+  skip <- FALSE
+
+  for (i in 1:nchar(text)) {
+    char <- substr(text, i, i)
+    if (char == "(") {
+      skip <- TRUE
+    }
+    if (!skip) {
+      result <- paste0(result, char)
+    }
+    if (char == ")") {
+      skip <- FALSE
+    }
+  }
+
+  return(trimws(result))
+}
+```
+
+### Changing missing values into NAs (Since removing NAs are not done yet)
+```{r}
+remove_parentheses <- function(text) {
+  if (is.na(text)) return(NA)
+  
+  result <- ""
+  skip <- FALSE
+
+  for (i in 1:nchar(text)) {
+    char <- substr(text, i, i)
+    if (char == "(") {
+      skip <- TRUE
+    }
+    if (!skip) {
+      result <- paste0(result, char)
+    }
+    if (char == ")") {
+      skip <- FALSE
+    }
+  }
+
+  return(trimws(result))
+}
+```
+
+### Applying them to the dataset
+```{r}
+eng_edu$Field <- sapply(eng_edu$Field, remove_parentheses)
+eng_edu$Education_branch <- sapply(eng_edu$Education_branch, remove_parentheses)
+```
+
+\newpage
+### Remove “Adult Education" and "Reading Room" from the school type - since we are analyzing schools for elementary, middle, and high school students.
+```{r}
+academy_edu1 <- eng_edu[eng_edu$Field != "독서실",]
+academy_edu2 <- academy_edu1[academy_edu1$Subject != "독서실(일)",]
+academy_edu3 <- academy_edu2[academy_edu2$Subject != "독서실(월)",]
+academy_edu4 <- academy_edu3[academy_edu3$Subject != "첨삭및독서실이용",]
+academy_edu <- academy_edu4[academy_edu4$Academy_type != "평생직업교육학원",]
+```
+
+### Resolve Missing Values (NAs)- base on other values in ths same row
+```{r}
+na_edu <- academy_edu
+
+#Delete all if region is NA - since the ones we cleared earlier are still there
+na_edu <- na_edu[complete.cases(na_edu$Region),]
+
+#NAs in Education_branch -> give the same value as the Field value in the same row (since it is the same field of education)
+na_edu$Education_branch[is.na(na_edu$Education_branch)] <-na_edu$Field[is.na(na_edu$Education_branch)]
+
+#Number_of_instructors NAs -> give 1. (local code)
+na_edu$Number_of_instructors[is.na(na_edu$Number_of_instructors)] <- 1
+
+#fill subject missing values (math)
+na_edu$Subject[which(grepl("수학", na_edu$Academy_name, fixed = TRUE) & is.na(na_edu$Subject))] <- "수학"
+
+#fill subject missing values (music)
+na_edu$Subject[which(grepl("음악", na_edu$Course, fixed = TRUE) & is.na(na_edu$Subject))] <- "음악"
+
+#fill subject missing values (English)
+na_edu$Subject[which(grepl("영어", na_edu$Academy_name, fixed = TRUE) & is.na(na_edu$Subject))] <- "영어"
+
+#fill subject missing values (art)
+na_edu$Subject[which(grepl("미술", na_edu$Academy_name, fixed = TRUE) & is.na(na_edu$Subject))] <- "미술"
+
+#fill subject missing values (writing)
+na_edu$Subject[which(grepl("논술", na_edu$Course, fixed = TRUE) & is.na(na_edu$Subject))] <- "논술"
+
+#fill subject missing values (general academy)
+#View(na_edu[apply(is.na(na_edu), 1, any), ])
+jong_hap <- which(na_edu$Education_branch == "종합" & is.na(na_edu$Course))
+na_edu$Course[jong_hap] <- na_edu$Education_branch[jong_hap]
+
+#fill course missing values (English)
+na_edu$Course[which(grepl("영어", na_edu$Subject, fixed = TRUE) & is.na(na_edu$Course))] <- "영어"
+
+#fill course missing values (writing)
+na_edu$Course[which(grepl("논술", na_edu$Subject, fixed = TRUE) & is.na(na_edu$Course))] <- "논술"
+
+#fill course missing values (Koreon)
+na_edu$Course[which(grepl("국어", na_edu$Subject, fixed = TRUE) & is.na(na_edu$Course))] <- "국어"
+
+#fill course missing values (math) 
+na_edu$Course[which(grepl("수학", na_edu$Subject, fixed = TRUE) & is.na(na_edu$Course))] <- "수학"
+
+#fill course missing values (science)
+na_edu$Course[which(grepl("과학", na_edu$Subject, fixed = TRUE) & is.na(na_edu$Course))] <- "과학"
+na_edu$Course[which(grepl("로봇", na_edu$Subject, fixed = TRUE) & is.na(na_edu$Course))] <- "영어"
+
+#fill course missing values (social science)
+na_edu$Course[which(grepl("사회", na_edu$Subject, fixed = TRUE) & is.na(na_edu$Course))] <- "사회"
+
+#fill course missing values (piano) 
+na_edu$Course[which(grepl("피아노", na_edu$Subject, fixed = TRUE) & is.na(na_edu$Course))] <- "피아노"
+
+#fill course missing values (supplementary education) 
+na_edu$Course[which(grepl("보습", na_edu$Subject, fixed = TRUE) & is.na(na_edu$Course))] <- "보습"
+
+#fill course missing values (art)
+na_edu$Course[which(grepl("미술", na_edu$Academy_name, fixed = TRUE) & is.na(na_edu$Course))] <- "미술"
+
+#fill capacity missing values (since it is written zero in the website, fill it with "zero")
+na_edu$Capacity[is.na(na_edu$Capacity)] <- 0
+
+
+#fill Founder missing values(searched on the internet or get from the Academy name)
+
+#의왕야마하(in the internet blog of this institute)
+na_edu$Founder[which(grepl("야마하", na_edu$Academy_name, fixed = TRUE) & is.na(na_edu$Founder))] <- "도미솔"
+
+#지나스 어학원 (from the academy name- it has the founder's name in the academy name)
+na_edu$Founder[which(grepl("Jina&apos;s", na_edu$Academy_name, fixed = TRUE) & is.na(na_edu$Founder))] <- "Jina"
+
+#아담리즈서판교센터 (from the institute's website)
+na_edu$Founder[which(grepl("아담리즈", na_edu$Academy_name, fixed = TRUE) & is.na(na_edu$Founder))] <- "류수용"
+
+```
+\newpage
+
+### Collect the same academies (if it has multiple locations) and find the number of those academies
+```{r}
+franchise_edu <- na_edu
+
+#remove subject & education period (since it is useless)
+franchise_edu <- subset(franchise_edu, select = -c(Subject, Education_period))
+
+#Region, Academy_name, Academy_type, Field, Founder,  Education_branch, course is the same for every row, there for leave only one (We chose Academy_name)
+#get the mean of capacity
+#get the median of total education type - since there are too much outliers and the distribution is uneven
+#get the mean of tuition
+#get the mean of number of instructors (since all the values are same, we used mean: value = mean)
+
+franchise_edu <- franchise_edu %>%
+  group_by(Academy_name) %>%
+  summarize(
+    Region = first(Region),
+    Academy_type = first(Academy_type),
+    Field = first(Field),
+    Founder = first(Founder),
+    Education_branch = first(Education_branch),
+    Course = first(Course),
+    Capacity = mean(Capacity, na.rm = TRUE),
+    Tuition = mean(Tuition, na.rm = TRUE),
+    Number_of_instructors = mean(Number_of_instructors, na.rm = TRUE),
+    Total_education_time_in_minutes = median(Total_education_time_in_minutes, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+### change some columns for easier understanding.
+```{r}
+updated_edu<-na_edu
+
+# change '국제화' into '외국어' for easier understanding.
+updated_edu[updated_edu$Field=='국제화',]$Field='외국어'
+updated_edu[updated_edu$Education_branch=='국제화',]$Education_branch='외국어'
+
+# Leave only data with word '입시' in subjects whose field is '기타'
+updated_edu<-updated_edu%>%filter(!(Education_branch=='기타'&!(str_detect(Subject,'입시'))))
+
+# Combine the three fields that contain word '입시' into one field
+updated_edu$Field[str_detect(updated_edu$Field,'입시')] <- '입시검정 및 보습'
+```
+
+### Make it simple by changing data into factors
+```{r}
+# Region
+updated_edu$Region<-as.factor(updated_edu$Region)
+
+# Field
+updated_edu$Field<-as.factor(updated_edu$Field)
+
+# Education_branch
+updated_edu$Education_branch<-as.factor(updated_edu$Education_branch)
+
+# Course
+updated_edu$Course<-as.factor(updated_edu$Course)
+
+# make Capacity column numeric
+updated_edu$Capacity<-as.numeric(updated_edu$Capacity)
+```
+### Add column about number of students per instructor
+```{r}
+updated_edu<-updated_edu%>%mutate(Student_per_instructor=Capacity/Number_of_instructors)
+updated_edu$Student_per_instructor<-round(updated_edu$Student_per_instructor,2)
+```
+
+\newpage
+
+### Remove Academy_type column (since they are all same)
+```{r}
+edit_edu<- updated_edu 
+edit_edu <- subset(edit_edu,select=-c(Academy_type))
+```
+
+
+### If the field value is Special Education, remove that row and sort Field row contents by frequency
+```{r}
+edit_edu <- edit_edu %>% filter(!grepl("특수교육",Field))
+frequency <- edit_edu %>% count(Field)
+```
+
+### Remove all rows containing the word "adult" from education_branch
+```{r}
+edit_edu <- edit_edu %>% filter(!grepl("성인",Course,ignore.case = TRUE))
+```
+
+### Simplify the Course column
+```{r}
+frequency <- edit_edu %>% count(Course)
+```
+### Categorize courses into 16 categories (Music, Art, Advanced Placement, Broadcasting, Science, Speech, Computer, GED, Dance, Beauty, Consulting, Music, Reading/Writing, Languages, Go, Other).
+```{r}
+edit_edu <- edit_edu %>% mutate(simple_Course = case_when(
+  Course %in% c("국악","실용음악","음악","기타(중)") ~ "음악",
+  Course %in% c("만화","미술","서예") ~ "미술",
+  Course %in% c("보습·논술","보습","학교교과교습학원","보통교과","종합","입시","입시·논술") ~ "내신/수능 교과목",
+  Course %in% c("모델","방송","연극","통신") ~ "방송", 
+  Course %in% c("화공 및 세라믹","화학") ~ "과학",
+  Course %in% c("화술","웅변") ~ "스피치",
+  Course %in% c("컴퓨터(소)","정보교과","전산회계","소프트웨어","컴퓨터(정보처리,통신기기,인터넷,소프트웨어)") ~ "컴퓨터",
+  Course %in% c("전문교과제외","검정") ~ "검정고시",
+  Course %in% c("무용","댄스") ~ "춤",
+  Course %in% c("광업자원","바둑") ~ "바둑",
+  Course %in% c("실용외국어(유아/초·중·고)","외국어") ~ "언어",
+  Course %in% c("이·미용","미용") ~ "미용",
+  Course %in% c("진학상담지도","진학지도") ~ "컨설팅",
+  Course == "예능(중)" & str_detect(Academy_name, "미술") ~ "미술",
+  Course == "예능(중)" ~ "음악",
+  Course == "기타(소)" & str_detect(Academy_name, "음악") ~ "음악",
+  Course == "기타(소)" & str_detect(Academy_name, "만화") ~ "미술",
+  Course == "기타(소)" & str_detect(Academy_name, "댄스") ~ "춤",
+  Course == "기타(소)" & str_detect(Academy_name, "무용") ~ "춤",
+  Course == "기타(소)" & str_detect(Academy_name, "연기") ~ "방송",
+  Course == "기타(소)" & str_detect(Academy_name, "뮤지컬") ~ "방송",
+  Course == "기타(소)" & str_detect(Academy_name, "스피치") ~ "스피치",
+  Course == "기타(소)" & str_detect(Academy_name, "창의") ~ "컴퓨터",
+  Course == "기타(소)" & str_detect(Academy_name, "케이팝") ~ "춤",
+  Course == "기계" & str_detect(Academy_name, "국악") ~ "음악",
+  Course == "기계" ~ "미술",
+  Course == "" & str_detect(Subject,"음악") ~ "음악",
+  Course == "" & str_detect(Subject,"체르니") ~ "음악",
+  Course == "" & str_detect(Subject,"바이엘") ~ "음악",
+  Course == "" & str_detect(Subject,"피아노") ~ "음악",
+  Course == "" & str_detect(Subject,"미술") ~ "미술",  
+  Course == "" & str_detect(Subject, "국") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Subject, "영") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Subject, "수") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Subject, "과") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Subject, "화") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Subject, "생") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Subject, "물") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Subject, "논") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Subject, "사") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Subject, "보습") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Subject, "단과") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Subject, "종합") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Subject, "정보") ~ "컴퓨터",
+  Course == "" & str_detect(Subject, "코딩") ~ "컴퓨터",
+  Course == "" & str_detect(Subject, "발레") ~ "춤",
+  Course == "" & str_detect(Subject, "댄스") ~ "춤",  
+  Course == "" & str_detect(Subject, "바둑") ~ "바둑", 
+  Course == "" & str_detect(Subject, "독서") ~ "독서/작문",
+  Course == "" & str_detect(Subject, "글쓰기") ~ "독서/작문",  
+  Course == "" & str_detect(Subject, "어학") ~ "언어",
+  Course == "" & str_detect(Subject, "입시") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Subject, "진학") ~ "컨설팅",
+  Course == "" & str_detect(Subject, "컨설팅") ~ "컨설팅",
+  Course == "" & str_detect(Subject, "면접") ~ "스피치",
+  Course == "" & str_detect(Subject, "소프트웨어") ~ "컴퓨터",
+  Course == "" & str_detect(Subject, "컴퓨터") ~ "컴퓨터",
+  Course == "" & str_detect(Subject, "바이올린") ~ "음악",
+  Course == "" & str_detect(Subject, "프로그래밍") ~ "컴퓨터",
+  Course == "" & str_detect(Subject, "우쿠렐레") ~ "음악",
+  Course == "" & str_detect(Subject, "기타") ~ "음악",
+  Course == "" & str_detect(Subject, "리코더") ~ "음악",
+  Course == "" & str_detect(Subject, "C언어") ~ "컴퓨터",
+  Course == "" & str_detect(Subject, "ITQ") ~ "컴퓨터",
+  Course == "" & str_detect(Subject, "파이썬") ~ "컴퓨터",
+  Course == "" & str_detect(Subject, "일본어") ~ "언어",
+  Course == "" & str_detect(Subject, "웹") ~ "컴퓨터",
+  Course == "" & str_detect(Subject, "웅변") ~ "스피치",
+  Course == "" & str_detect(Subject, "웅변") ~ "스피치",
+  Course == "" & str_detect(Academy_name, "수학") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Academy_name, "어학") ~ "언어",
+  Course == "" & str_detect(Academy_name, "외국어") ~ "언어",
+  Course == "" & str_detect(Academy_name, "음악") ~ "음악",
+  Course == "" & str_detect(Academy_name, "미술") ~ "미술",
+  Course == "" & str_detect(Academy_name, "연기") ~ "방송",
+  Course == "" & str_detect(Academy_name, "컴퓨터") ~ "컴퓨터",
+  Course == "" & str_detect(Academy_name, "뮤지컬") ~ "방송",
+  Course == "" & str_detect(Academy_name, "보컬") ~ "음악",
+  Course == "" & str_detect(Academy_name, "뮤직") ~ "음악",
+  Course == "" & str_detect(Academy_name, "열린하늘문학원원") ~ "음악",
+  Course == "" & str_detect(Academy_name, "글로벌") ~ "언어",
+  Course == "" & str_detect(Academy_name, "스카이에듀") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Academy_name, "이강") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Academy_name, "해커스아카데미영재학원") ~ "컴퓨터",
+  Course == "" & str_detect(Academy_name, "비엔제이이") ~ "컴퓨터",
+  Course == "" & str_detect(Founder, "메가스터디") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Founder, "이투스") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Founder, "이효진") ~ "언어",  
+  Course == "" & str_detect(Academy_name, "에픽아카데미학원") ~ "내신/수능 교과목",
+  Course == "" & str_detect(Academy_name, "코딩") ~ "컴퓨터",
+  Course == "" & str_detect(Academy_name, "영어") ~ "언어",
+  Course == "" & str_detect(Academy_name, "새중앙") ~ "음악",
+  Course == "" & str_detect(Academy_name, "열린하늘문학원") ~ "음악",
+  Course == "" & str_detect(Academy_name, "스타컴마하학원") ~ "음악",  
+  Course == "" & str_detect(Academy_name, "안산에스엘피학원") ~ "언어",
+  Course == "" & str_detect(Academy_name, "큰솔학원") ~ "스피치",
+  Course == "" & str_detect(Academy_name, "컴세바아이티") ~ "컴퓨터",
+  Course == "" & str_detect(Academy_name, "늘사랑") ~ "음악",  
+  TRUE ~ "기타"
+))
+frequency <- edit_edu %>% count(simple_Course)
+```
+\newpage
+
+### Add the column "monthly tuition"
+```{r}
+#1) View statistics for values in education_period
+frequency <- edit_edu %>% count(Education_period)
+
+#2) check the na values
+na_count <- sum(is.na(edit_edu$Education_period))
+
+#3)Find the mothly_fee and add into the dataframe
+edit_edu <- edit_edu %>%
+  mutate(monthly_fee = {
+    
+    # convert and unify the month/day value into "days"
+    
+    months_str <- str_extract(Education_period, "\\d+(?=개월)")  
+    days_str <- str_extract(Education_period, "\\d+(?=일)")
+    
+    months <- ifelse(is.na(months_str), 0, as.numeric(months_str))
+    days <- ifelse(is.na(days_str), 0, as.numeric(days_str))
+    
+    #Unify teaching period in months
+    
+    total_days <- ifelse(months == 0 & days == 0, 30, (months * 30) + days)
+    teaching_period <- ifelse(as.integer(total_days / 30) < 1, 1, as.integer(total_days / 30))
+    
+    #Tuition/ months = monthly_fee 
+    monthly_fee <- as.integer(Tuition/teaching_period)
+    monthly_fee
+  })
+```
+
+### Deviding the dataframes by the "field" of studies- making all of them into seperate dataframes. 
+```{r}
+art <- edit_edu %>%
+  filter(Field == "예능")
+foreign_lang <- edit_edu %>%
+  filter(Field == "외국어")
+exam <- edit_edu %>%
+  filter(Field == "입시검정 및 보습")
+info <- edit_edu %>%
+  filter(Field == "정보")
+general <- edit_edu %>%
+  filter(Field == "종합")
+
+#Dividing the dataframes by the "Region"- making all of them into seperate dataframes. 
+suwon <- edit_edu %>%
+  filter(Region == "수원")
+sungnam <- edit_edu %>%
+  filter(Region == "성남")
+anyang <- edit_edu %>%
+  filter(Region == "안양")
+guacheon <- edit_edu %>%
+  filter(Region == "과천")
+bucheon <- edit_edu %>%
+  filter(Region == "부천")
+guangmyeong <- edit_edu %>%
+  filter(Region == "광명")
+ansan <- edit_edu %>%
+  filter(Region == "안산")
+pyeongtaek <- edit_edu %>%
+  filter(Region == "평택")
+gunpo <- edit_edu %>%
+  filter(Region == "군포")
+euiwang <- edit_edu %>%
+  filter(Region == "의왕")
+yeoju <- edit_edu %>%
+  filter(Region == "여주")
+guangju <- edit_edu %>%
+  filter(Region == "광주")
+hanam<- edit_edu %>%
+  filter(Region == "하남")
+hwasung_osan<- edit_edu %>%
+  filter(Region == "화성오산")
+yangpyeong <- edit_edu %>%
+  filter(Region == "양평")
+echeon<- edit_edu %>%
+  filter(Region == "이천")
+yongin <- edit_edu %>%
+  filter(Region == "용인")
+anseong <- edit_edu %>%
+  filter(Region == "안성")
+kimpo <- edit_edu %>%
+  filter(Region == "김포")
+siheung <- edit_edu %>%
+  filter(Region == "시흥")
+euijungbu <- edit_edu %>%
+  filter(Region == "의정부")
+dongducheon <- edit_edu %>%
+  filter(Region == "동두천")
+yangju <- edit_edu %>%
+  filter(Region == "양주")
+goyang <- edit_edu %>%
+  filter(Region == "고양")
+guri_namyangju <- edit_edu %>%
+  filter(Region == "구리남양주")
+paju <- edit_edu %>%
+  filter(Region == "파주")
+yeoncheon <- edit_edu %>%
+  filter(Region == "연천")
+gapeong <- edit_edu %>%
+  filter(Region == "가평")
+pocheon <- edit_edu %>%
+  filter(Region == "포천")
+```
+\newpage
+
+### Graph between Region and number of academies 
+```{r}
+final_edu <- edit_edu
+ggplot(final_edu,aes(Region, fill=Field)) + 
+  geom_bar() + 
+  theme(axis.text.x = element_text(margin = margin(.3,0,0,0, "cm"), size = 13, angle = 90, hjust = 1),
+        panel.background = element_rect(fill = "white"),
+        panel.grid.major = element_line(color = "lightgrey", size = 0.1),
+        panel.grid.minor = element_line(color = "lightgrey", size = 0.1),
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Region", y = "number of academies", title = "Number of Academies") 
+```
+
+### Basic analysis visualization: smoothed line graph - Monthly Fee per Course
+```{r}
+#mutating a new dataframe by using monthly fee to find out which courses are more expensive
+money_edu <- final_edu %>% 
+  arrange(desc(monthly_fee)) %>%
+  mutate(simple_Course = factor(simple_Course, levels = unique(simple_Course)))
+
+ggplot(money_edu, aes(x=simple_Course, y=monthly_fee, group=1)) +
+  geom_smooth(method = "loess", se = FALSE, color="hotpink") +
+  theme(axis.text.x = element_text(margin = margin(.3,0,0,0, "cm"), size = 13, angle = 90, hjust = 1),
+        panel.background = element_rect(fill = "white"),
+        panel.grid.major = element_line(color = "lightgrey", size = 0.1),
+        panel.grid.minor = element_line(color = "lightgrey", size = 0.1),
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x="simple_Course", y="Monthly Fee") +
+  ggtitle("Monthly Fee per Course") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### Basic analysis visualization: scatter plot- Comparative Analysis of Course Fees by Region
+```{r}
+ggplot(final_edu, aes(x=simple_Course, y=Tuition)) +
+  geom_point(aes(color = Region), size = 3) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 14), 
+        axis.text.y = element_text(size = 14), 
+        plot.title = element_text(hjust = 0.5, size = 14)) + 
+  theme(panel.background = element_rect(fill = "white"),
+        panel.grid.major = element_line(color = "lightgrey", size = 0.1),
+        panel.grid.minor = element_line(color = "lightgrey", size = 0.1)) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(x="Simple Course", y="Tuition", title = "Comparative Analysis of Course Fees by Region", color="Region") 
+```
+
+\newpage
+
+### Add a population column and summarized the number of academy per region (data: df)
+```{r}
+population<-c(61915, 1078025, 78929, 283849, 390863, 924192,  264857,  484474, 90460,  788179, 923344, 1191821, 518072, 637480, 188637, 546781, 252218, 122767, 113375, 41744, 1074744, 158882, 462374, 222348, 496870,  584126, 145373, 326913, 1154307)
+
+sum_by_region<-final_edu%>%group_by(Region)%>%summarise(count_of_academy=n(), avg_education_time = sum(Total_education_time_in_minutes)/count_of_academy, avg_Capacity = sum(Capacity)/count_of_academy, avg_Tuition = sum(Tuition)/count_of_academy, avg_instructors = sum(Number_of_instructors)/count_of_academy, avg_student_per_instructor = sum(Student_per_instructor)/count_of_academy,avg_monthly_fee= sum(monthly_fee)/count_of_academy, .groups = "drop")%>%cbind(population=population)
+
+academy_num_per_region <- final_edu%>% group_by(Region,Academy_name, Founder) %>% summarise(count = n()) %>% ungroup()
+
+
+edit_region_academy_num <- academy_num_per_region %>% group_by(Region) %>% summarise(count_of_num=n())
+
+new_num <- edit_region_academy_num$count_of_num
+sum_by_region[[2]] <- new_num
+df <- sum_by_region
+# Adding a column for "the number of middle & high schools by region."
+df$high_middle_school <- c(9,61,6,22,18,65,19,31,9,57,57,85,35,48,20,36,65,15,16,7,66,9,29,20,37,43,17,15,78)
+
+# Adding a column for "population density"
+df$density_of_population <- c(74.7 , 4065.4, 2204.3 ,7452.1 ,934.1, 14.9 ,7432.2 ,1826.5 ,983.1 ,15197.2 ,6626.3 ,10129.9 ,3949.1 ,4395.3 ,363.6 ,9455.4 , 837.4 , 141.5 ,192.4 ,63.1 ,1848.3 ,2960.6 ,5729.5 ,498.8 ,755.7 ,1332.0 ,192.0 ,3540.2 ,1622.0)
+```
+\newpage
+
+### Linear graph between population and number of academy
+```{r}
+ggplot(df, aes(x = population, y = count_of_academy)) +
+  geom_point(size = 3.5, aes(color = count_of_academy)) +
+  geom_smooth(method = "lm", color = "skyblue",size=2,se=FALSE) +
+  xlab("Population") +
+  ylab("Number of Academy") +
+  labs(title = "Linear graph between population and number of academy") +
+  theme_minimal()+
+  theme(plot.background = element_rect(fill = "white")) + 
+  theme(axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 14))
+```
+
+### Correlation analysis and linear regression analysis between the number of private academies by region and the population by region.
+```{r}
+cor.test(df$count_of_academy,df$population)
+summary(lm(df$count_of_academy~df$population))
+```
+
+\newpage
+
+### Correlation and linear regression between population density and NAR 
+```{r}
+cor.test(df$count_of_academy/df$high_middle_school,df$density_of_population)
+summary(lm(df$count_of_academy/df$high_middle_school~df$density_of_population))
+
+ggplot(df, aes(x = density_of_population, y = count_of_academy / high_middle_school)) +
+  geom_point(size = 4, color = "steelblue") +
+  geom_smooth(method = "lm", se = FALSE, color = "hotpink",size=2) +
+  ylab("NAR") +
+  xlab("Population") +
+  labs(title = "Linear graph between population and NAR") +
+  theme_minimal() +
+  theme(plot.background = element_rect(fill = "white"),
+        plot.title = element_text(hjust = 0.5, face = "bold"), 
+        axis.title = element_text(size = rel(1.2), face = "bold"))
+```
+
+### Correlation and linear relation with avg_Capacity and avg_monthly_fee
+```{r}
+cor.test(df$avg_Capacity,df$avg_monthly_fee)
+summary(lm(df$avg_Capacity~df$avg_monthly_fee))
+```
+
+### Correlation and linear regression between Average instructors and average monthly fee
+```{r}
+cor.test(df$avg_instructors,df$avg_monthly_fee)
+summary(lm(df$avg_instructors~df$avg_monthly_fee))
+
+ggplot(df, aes(x= df$avg_instructors, y=df$avg_monthly_fee)) + geom_point(size = 4, color = "steelblue") + geom_smooth(method = "lm", se = FALSE, color = "hotpink",size=2) +
+  ylab("Average monthly_fee per Region") + xlab("Average instructors in Academy per Region") +
+  labs(title = "Linear graph between average num of instructors and monthly_fee") + theme_minimal() +
+  theme(plot.background = element_rect(fill = "white"),plot.title = element_text(hjust = 0.5, face = "bold"), axis.title = element_text(size = rel(1.2), face = "bold"))
+```
+\newpage
+
+### Correlation between each simple course.
+```{r}
+cur_table<-xtabs(~Region+final_edu$simple_Course, data=final_edu)
+cur_table<- cur_table[,colSums(cur_table)>0]
+ggcorrplot(cor(cur_table, method='pearson'), type='lower', method='circle',colors=diverge_hcl(3, palette='Blue red 2'), outline.color='white', hc.order=TRUE, lab=T, lab_size=2,p.mat=cor_pmat(cur_table), , title='Correlation by subject')
+```
+\newpage
+
+### Clustering regions with similar type of academy
+```{r}
+#new data set for clustering (it contains all the data from 'df' and regional mean of each simple_course classes)
+cls_df<-final_edu%>%group_by(Region)%>%summarise('검정고시'=sum(simple_Course=='검정고시'),'과학'=sum(simple_Course=='과학'),'기타'=sum(simple_Course=='기타'),'내신/수능 교과목'=sum(simple_Course=='내신/수능 교과목'),'미술'=sum(simple_Course=='미술'),'미용'=sum(simple_Course=='미용'),'바둑'=sum(simple_Course=='바둑'),'방송'=sum(simple_Course=='방송'),'스피치'=sum(simple_Course=='스피치'),'언어'=sum(simple_Course=='언어'),'음악'=sum(simple_Course=='음악'),'춤'=sum(simple_Course=='춤'),'컨설팅'=sum(simple_Course=='컨설팅'),'컴퓨터'=sum(simple_Course=='컴퓨터'))
+
+cls_df<-inner_join(df, cls_df, by = join_by(Region))
+name<-cls_df[,1]
+rownames(cls_df)<-name
+cls_df<-cls_df[,-1]
+
+#scale data for clustering
+scale_cls_df<-scale(cls_df)
+
+# delete population data from scale_cls_df
+without_pop_df<-scale_cls_df[,-c(8,9,10)]
+
+# k-means clustering
+k2<-kmeans(without_pop_df, centers=2, nstart=25)
+k3<-kmeans(without_pop_df, centers=3, nstart=25)
+k4<-kmeans(without_pop_df, centers=4, nstart=25)
+k5<-kmeans(without_pop_df, centers=5, nstart=25)
+
+# visualize the result of clustering
+g2<-fviz_cluster(k2, data=without_pop_df, pointsize=1, labelsize=8)+ggtitle('k=2')+theme(panel.background = element_rect(fill = "white"),panel.grid.major = element_line(color = "lightgrey", size = 0.1),panel.grid.minor = element_line(color = "lightgrey", size = 0.1),plot.title = element_text(hjust = 0.5)) 
+g3<-fviz_cluster(k3, data=without_pop_df, pointsize=3, labelsize=8)+ggtitle('k=3')+theme(panel.background = element_rect(fill = "white"),panel.grid.major = element_line(color = "lightgrey", size = 0.1),panel.grid.minor = element_line(color = "lightgrey", size = 0.1),plot.title = element_text(hjust = 0.5)) 
+g4<-fviz_cluster(k4, data=without_pop_df, pointsize=1, labelsize=8)+ggtitle('k=4')+theme(panel.background = element_rect(fill = "white"),panel.grid.major = element_line(color = "lightgrey", size = 0.1),panel.grid.minor = element_line(color = "lightgrey", size = 0.1),plot.title = element_text(hjust = 0.5)) 
+g5<-fviz_cluster(k5, data=without_pop_df, pointsize=1, labelsize=8)+ggtitle('k=5')+theme(panel.background = element_rect(fill = "white"),panel.grid.major = element_line(color = "lightgrey", size = 0.1),panel.grid.minor = element_line(color = "lightgrey", size = 0.1),plot.title = element_text(hjust = 0.5)) 
+grid.arrange(g2, g3, g4, g5 , nrow=2)
+```
+
+### calculate and visualize silhouette coefficient and find the optimal k
+```{r}
+fviz_nbclust(without_pop_df, kmeans, method = "silhouette", linecolor='hotpink')+theme(panel.background = element_rect(fill = "white"),panel.grid.major = element_line(color = "lightgrey", size = 0.1),panel.grid.minor = element_line(color = "lightgrey", size = 0.1),plot.title = element_text(hjust = 0.5)) 
+
+# summarize cluster
+cluster_factor<-as.factor(k3$cluster)
+table(cluster_factor)
+```
+level=1 : Echeon
+level=2 : Goyang, Bucheon, Sungnam, Suwon, Yongin, Hwasung_osan, Anyang
+level-3 : others
+
+### Figure out what does dim1, dim2 on the x and y axes of clustering visualization.
+```{r}
+pc<-prcomp(without_pop_df,scale=T)
+summary(pc)
+
+dim1<-fviz_contrib(pc, 'var', axes=1, fill='hotpink', color='black')+theme(plot.title = element_text(hjust = 0.5)) 
+dim2<-fviz_contrib(pc, 'var', axes=2, fill='skyblue', color='black')+theme(plot.title = element_text(hjust = 0.5)) 
+grid.arrange(dim1, dim2, nrow=1)
+```
+
+### Reason of why Echeon form a seperate group - compare to Paju where the number of academy is similar to Echeon.
+
+```{r}
+echeon_paju<-rbind(cls_df[24,], cls_df[25,])
+echeon_paju<-echeon_paju%>%mutate(Region=c('이천', '파주'))
+ggplot(echeon_paju, aes(x=Region,y=미술/count_of_academy))+geom_bar(stat="identity", position="dodge", fill=c('skyblue', 'hotpink'), width=0.5)+theme(
+        panel.background = element_rect(fill = "white"),
+        panel.grid.major = element_line(color = "lightgrey", size = 0.1),
+        panel.grid.minor = element_line(color = "lightgrey", size = 0.1),
+        plot.title = element_text(hjust = 0.5)) +ggtitle("difference between Echeon & Paju")+ylab('Ratio of the number of art classes to the number of academies')
+```
+
